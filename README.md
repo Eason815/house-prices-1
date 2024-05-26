@@ -19,73 +19,316 @@ https://www.kaggle.com/c/house-prices-advanced-regression-techniques
 **使用说明及下载**：https://www.kaggle.com/competitions/house-prices-advanced-regression-techniques/data
 
 
+## 评价
+
+截止此次Commit 
+
+最高在Kaggle得分为0.11979 排名约为145/4768
 
 
-## 实现过程
-
-使用d2l课本源代码 在Kaggle得分为0.16 
-
-### 尝试1
 
 
 
-在处理房价预测这类回归问题时，以下是一些常用的深度学习模型：
 
-1. **多层感知机（MLP）**：这是最简单的深度学习模型，由多个全连接层组成。尽管简单，但在许多任务中表现良好。
+## 思路&优化点
+
+### 损失函数
+
+常用的损失函数有均方误差（Mean Squared Error，MSE）和平均绝对误差（Mean Absolute Error，MAE），以及Huber损失（也称为Smooth Mean Absolute Error）。
+
+1. **均方误差（MSE）**：最常用的回归问题损失函数。它计算预测值和真实值之间的平方差。但是，MSE对于异常值非常敏感，因为它会将每个误差平方。
+
+```python
+loss = nn.MSELoss()
+```
+
+2. **平均绝对误差（MAE）**：MAE是预测值和真实值之间差的绝对值的平均。与MSE相比，MAE对异常值不那么敏感，但它不是可微的，这可能会影响优化算法的性能。
+
+```python
+loss = nn.L1Loss()
+```
+
+3. **Huber损失**：Huber损失是MSE和MAE的折衷，它在误差较小的时候表现得像MSE，在误差较大的时候表现得像MAE。这使得它对于异常值不那么敏感。
+
+```python
+loss = nn.SmoothL1Loss()
+```
+大多数情况下
+
+如果数据中存在很多异常值，适合选择MAE或Huber损失。
+
+如果数据中异常值不多，MSE适合。
+
+### 优化器
+
+这里考虑以下几种优化器：
+
+1. **随机梯度下降（SGD）**：这是最基本的优化器，但在某些情况下可能需要较长的时间才能收敛。
+
+```python
+optimizer = torch.optim.SGD(net.parameters(), lr=learning_rate, weight_decay=weight_decay)
+```
+
+2. **Adam**：Adam优化器结合了RMSProp和Momentum的优点，通常表现得很好，是一种常用的优化器。
+
+```python
+optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate, weight_decay=weight_decay)
+```
+
+3. **RMSprop**：RMSprop优化器是一种自适应学习率的优化器，可以处理非平稳目标函数和在线和非平稳设置。
+
+```python
+optimizer = torch.optim.RMSprop(net.parameters(), lr=learning_rate, weight_decay=weight_decay)
+```
+大多数情况下
+
+如果数据是稀疏的，适合选择Adam或RMSprop。
+
+如果有关深度学习问题，适合选择Adam。
+
+### 正则化
+
+实现正则化以防止过拟合：
+
+1. **权重衰减**：在优化器中设置`weight_decay`参数可以实现L2正则化，这是一种常见的权重衰减方法。如：
+
+```python
+optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate, weight_decay=0.01)
+```
+
+2. **Dropout**：在模型中添加`nn.Dropout`层可以在训练过程中随机关闭一部分神经元，这也可以防止过拟合。如：
 
 ```python
 def get_net():
     net = nn.Sequential(
         nn.Linear(in_features, 64),
         nn.ReLU(),
-        nn.Linear(64, 32),
+        nn.Dropout(0.5),  # 添加Dropout层，丢弃率为0.5
+        nn.Linear(64, 64),
         nn.ReLU(),
-        nn.Linear(32, 1)
+        nn.Dropout(0.5),  # 添加Dropout层，丢弃率为0.5
+        nn.Linear(64, 1)
     )
     return net
 ```
 
-2. **卷积神经网络（CNN）**：虽然CNN主要用于图像处理，但在某些情况下，也可以用于结构化数据。例如，你可以将数据重新排列成二维形式，并使用CNN处理。
+在此项目中实战效果不佳，后续没有再考虑使用。
 
-3. **自编码器（Autoencoder）**：自编码器是一种无监督的深度学习模型，可以用于特征提取。你可以训练一个自编码器来学习数据的低维表示，然后使用这个表示进行预测。
 
-4. **变分自编码器（VAE）或生成对抗网络（GAN）**：这些是更复杂的无监督学习模型，可以用于学习数据的复杂分布。然而，它们通常更难训练，可能不适合初学者。
+### 超参数选择(关键点)
 
-请注意，选择哪种模型取决于你的具体任务和数据。在选择模型时，你应该考虑你的数据类型（例如，你是否有图像或文本数据），你的任务（例如，你是否正在进行分类或回归），以及你的计算资源。
+人手选择？抽卡？
 
-## 优化点
+那肯定是使用以下常用的策略：
 
-### 贝叶斯优化
 
-使用贝叶斯推理来预测哪一组超参数可能会给出最好的性能。然后它在这个预测的基础上选择下一组要尝试的超参数。
+1. **网格搜索**：为每个超参数定义一个候选值的列表，然后尝试所有可能的组合。
+2. **随机搜索**：当有很多超参数时，网格搜索非常耗时。随机搜索是一种替代策略。
+3. **贝叶斯优化**：使用贝叶斯推理来预测哪一组超参数可能会给出最好的性能。然后它在这个预测的基础上选择下一组要尝试的超参数。
+4. **学习率衰减**：对于学习率，一种常见的策略是开始时使用较大的值，然后在训练过程中逐渐减小。这可以通过设置学习率调度器来实现。
 
+```贝叶斯优化```是一种用于找到最优化问题的全局最优解的方法，特别适合在高维度和非凸情况下寻找超参数的最优解。它通过构建目标函数的概率模型，然后使用这个模型来选择下一次的查询点。
+
+
+
+
+### 网络模型
+
+个人认为这是最头疼的一部分。
+
+考虑以下几种网络模型：
+
+1. **线性回归（Linear Regression）**：这是最基本的回归模型，适用于特征和目标之间存在线性关系的情况。但如果特征和目标之间的关系是非线性的，线性回归的表现可能就不会很好。
+
+2. **多层感知机（Multilayer Perceptron，MLP）**：MLP是一种简单的神经网络，由一个输入层、一个或多个隐藏层和一个输出层组成。MLP可以模拟非线性关系。
+
+3. **深度神经网络（Deep Neural Network，DNN）**：DNN是一种有多个隐藏层的神经网络。DNN可以模拟更复杂的非线性关系，但也更容易过拟合。
+
+基本上都是选择MLP或者DNN。
+
+这里的实验开始只是使用简单的线性回归模型
+
+```python
+def get_net():
+    net = nn.Sequential(nn.Linear(in_features,1))
+    return net
+```
+
+我们可以从这里着手进行改进优化，如：
+
+```python
+def get_net(in_features,num1,num2):
+    net = nn.Sequential(
+        nn.Linear(in_features, num1),
+        nn.ReLU(),
+        nn.Linear(num1, num2),
+        nn.ReLU(),
+        nn.Linear(num2, 1)
+    )
+    return net
+```
+
+## 实现过程
+
+使用d2l课本源代码 
+
+在Kaggle得分为0.16713 排名约为3516/4768
+
+
+
+### 尝试1
+
+改进损失函数
+
+
+~~loss = nn.MSELoss() # 均方误差损失~~
+
+    loss = nn.SmoothL1Loss() # Huber损失
+
+
+改进优化器
+
+~~optimizer = torch.optim.Adam(net.parameters(), lr = learning_rate, weight_decay = weight_decay) # Adam优化器~~
+
+
+    optimizer = torch.optim.RMSprop(net.parameters(), lr = learning_rate, weight_decay = weight_decay) #RMSprop优化器
+
+
+在Kaggle得分为0.16703 排名约为3460/4768
+
+
+### 尝试2
+
+改进网络模型使用DNN/MLP，设置三层线性层
+
+```python
+def get_net():
+    net = nn.Sequential(
+        nn.Linear(in_features, 64),  # 输入层到隐藏层，64个节点
+        nn.ReLU(),  # 非线性激活函数
+        nn.Linear(64, 64),  # 隐藏层到隐藏层，64个节点
+        nn.ReLU(),  # 非线性激活函数
+        nn.Linear(64, 1)  # 隐藏层到输出层，1个节点
+    )
+    return net
+```
+
+改进选择参数方式，使用贝叶斯优化来确定超参数(学习率，L2正则的权重衰减)
 ```python
 from hyperopt import fmin, tpe, hp
 
 # 定义目标函数
 def objective(params):
     k, num_epochs, lr, weight_decay, batch_size = 5, 100, params['lr'], params['weight_decay'], 64
-    # 训练和验证
-    train_l, valid_l = k_fold(k, train_features, train_labels, num_epochs, lr, weight_decay, batch_size)
-    # 返回验证误差
-    return valid_l
+    train_l, valid_l = k_fold(k, train_features, train_labels, num_epochs, lr, weight_decay, batch_size) # 训练和验证
+    return valid_l  # 返回验证误差
 
 # 贝叶斯优化
 def bayesian_optimization():
     # 定义参数空间
-    space = {
-        'lr': hp.loguniform('lr', -5, 0),
-        'weight_decay': hp.loguniform('weight_decay', -5, 0),
-    }
-
+    space = {'lr': hp.loguniform('lr', -5, 0),'weight_decay': hp.loguniform('weight_decay', -5, 0),}
     # 运行优化
-    best = fmin(fn=objective,
-                space=space,
-                algo=tpe.suggest,
-                max_evals=100)
-
-    print(best)
+    best = fmin(fn=objective,space=space,algo=tpe.suggest,max_evals=100)
     return best
 ```
 
-### 
+贝叶斯优化选择了合适的超参数后效果很明显
+
+在Kaggle得分为0.12391 排名约为446/4768
+
+
+### 尝试3
+
+对网络模型的改进仍抱有一丝希望
+
+个人观点是对于一个比较简单的房价预测问题，没有必要使用过于复杂模型，大材小用
+
+
+于是跑去尝试使用穷举法对main运行1000次，对优质网络模型进行选拔hh
+
+
+```python
+import subprocess
+
+for i in range(1000):
+    subprocess.call(["python", "main.py"])
+
+------------------------------------------------------------
+
+num1 = random.randint(10, 300)
+num2 = random.randint(10, 300)
+def get_net(in_features,num1,num2):
+
+    net = nn.Sequential(
+        nn.Linear(in_features, num1),
+        nn.ReLU(),
+        nn.Linear(num1, num2),
+        nn.ReLU(),
+        nn.Linear(num2, 1)
+    )
+    return net
+```
+
+
+网络模型具有一定随机性，依靠此特性多次训练并抽卡
+
+在Kaggle得分为0.12113 排名约为216/4768
+
+
+
+
+
+
+## 总结
+
+对于机器学习问题，抓住主要部分
+
+1. 数据
+
+这里课本数据预处理上已经较为完善，包括：
+- 标准化数值特征(标准化:减去均值然后除以标准差)
+- 填充缺失值
+- 创建虚拟变量(由独热编码，80个变成330个)
+- 划分训练集和测试集
+
+这部分完成效果还是可以的，没有什么进行挑剔，而且提升空间有限
+
+2. 模型
+
+这里课本使用的简单线性回归模型。
+
+如果特征和目标之间的关系是非线性的，线性回归的表现可能就不会很好。
+
+改进使用MLP/DNN模型
+
+3. 目标函数
+
+目标函数通常就是指损失函数。
+
+- 均方误差（MSE）
+- Huber损失
+
+感觉上差别不大，可能还是原来的MSE效果好
+
+4. 调参
+
+还是在这里对项目进行突破了
+
+全局优化：
+
+- 贝叶斯优化
+
+局部优化：
+
+- Adam
+- RMSprop
+
+## 参考文献
+
+https://d2l.ai/chapter_multilayer-perceptrons/kaggle-house-price.html
+
+在课本项目基础上优化改进，在Kaggle排行进行验证
+
+## 署名
+
+22软工lxx

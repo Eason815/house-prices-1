@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 import torch
 from torch import nn
-from d2l import torch as d2l
 import os
 from hyperopt import fmin, tpe, hp
 from sklearn.model_selection import cross_val_score
@@ -16,11 +15,17 @@ def get_args():
     # loss = nn.MSELoss() # 均方误差损失
     loss = nn.SmoothL1Loss() # Huber损失
 
+    # 0.11979 submission13
+    # num1 = 127
+    # num2 = 275
 
-    return choice, loss
+    num1 = 159
+    num2 = 300
+
+    return choice, loss, num1, num2
 
 def my_best():# 自行选择的超参数
-    best = {'lr': 0.001, 'weight_decay': 0.01}
+    best = {'lr': 0.008854963202072644, 'weight_decay': 0.045949699090015866}
     return best
 
 def data_preprocess():
@@ -54,26 +59,36 @@ def data_preprocess():
 
 
 
-# 0.12
-def get_net():
-    net = nn.Sequential(
-        nn.Linear(in_features, 64),  # 输入层到隐藏层，64个节点
-        nn.ReLU(),  # 非线性激活函数
-        nn.Linear(64, 64),  # 隐藏层到隐藏层，64个节点
-        nn.ReLU(),  # 非线性激活函数
-        nn.Linear(64, 1)  # 隐藏层到输出层，1个节点
-    )
-    return net
+# 0.123
+# def get_net():
+#     net = nn.Sequential(
+#         nn.Linear(in_features, 64),  # 输入层到隐藏层，64个节点
+#         nn.ReLU(),  # 非线性激活函数
+#         nn.Linear(64, 64),  # 隐藏层到隐藏层，64个节点
+#         nn.ReLU(),  # 非线性激活函数
+#         nn.Linear(64, 1)  # 隐藏层到输出层，1个节点
+#     )
+#     return net
 
 # def get_net():
 #     net = nn.Sequential(
 #         nn.Linear(in_features, 200),
 #         nn.ReLU(),
-#         nn.Linear(200, 100),
+#         nn.Linear(200, 200),
 #         nn.ReLU(),
-#         nn.Linear(100, 1)
+#         nn.Linear(200, 1)
 #     )
 #     return net
+
+def get_net(in_features,num1,num2):
+    net = nn.Sequential(
+        nn.Linear(in_features, num1),
+        nn.ReLU(),
+        nn.Linear(num1, num2),
+        nn.ReLU(),
+        nn.Linear(num2, 1)
+    )
+    return net
 
 def log_rmse(net, features, labels):
     # 为了在取对数时进一步稳定该值，将小于1的值设置为1
@@ -84,7 +99,8 @@ def log_rmse(net, features, labels):
 
 def train(net, train_features, train_labels, test_features, test_labels,num_epochs, learning_rate, weight_decay, batch_size):
     train_ls, test_ls = [], []
-    train_iter = d2l.load_array((train_features, train_labels), batch_size)
+    dataset = torch.utils.data.TensorDataset(train_features, train_labels)
+    train_iter = torch.utils.data.DataLoader(dataset, batch_size, shuffle=True)
     # 这里使用的是Adam优化算法
     optimizer = torch.optim.RMSprop(net.parameters(), lr = learning_rate, weight_decay = weight_decay)
     for epoch in range(num_epochs):
@@ -120,7 +136,7 @@ def k_fold(k, X_train, y_train, num_epochs, learning_rate, weight_decay, batch_s
     train_l_sum, valid_l_sum = 0, 0
     for i in range(k):
         data = get_k_fold_data(k, i, X_train, y_train)
-        net = get_net().to(device)
+        net = get_net(in_features,num1,num2).to(device)
         train_ls, valid_ls = train(net, *data, num_epochs, learning_rate, weight_decay, batch_size)
         train_l_sum += train_ls[-1]
         valid_l_sum += valid_ls[-1]
@@ -158,7 +174,7 @@ def bayesian_optimization():
 
 
 def train_and_pred(train_features, test_features, train_labels, test_data, num_epochs, lr, weight_decay, batch_size):
-    net = get_net().to(device)
+    net = get_net(in_features,num1,num2).to(device)
     train_ls, _ = train(net, train_features, train_labels, None, None,num_epochs, lr, weight_decay, batch_size)
     print(f'训练log rmse：{float(train_ls[-1]):f}')
     
@@ -168,21 +184,20 @@ def train_and_pred(train_features, test_features, train_labels, test_data, num_e
     test_data['SalePrice'] = pd.Series(preds.reshape(1, -1)[0])
     submission = pd.concat([test_data['Id'], test_data['SalePrice']], axis=1)
 
-    result_path = os.path.dirname(os.path.abspath(__file__)) + '/result/'
+    result_path = os.path.dirname(os.path.abspath(__file__)) + '\\result\\'
     with open(result_path + 'count.txt', 'r+', encoding='utf-8') as f:
-        count = f.read()
-        f.seek(0)
-        f.write(str(int(count) + 1))
-    path = result_path + 'submission' + count + '.csv'
-    submission.to_csv(path, index=False)
-
+        count = (f.readlines()[-1])
+        
+        path = result_path + 'submission' + count + '.csv'
+        submission.to_csv(path, index=False)
+        f.write(' ' + str(float(train_ls[-1])) + '\n' + str(int(count) + 1))
 
 
 
 
 if __name__ == '__main__':
 
-    choice, loss = get_args()
+    choice, loss, num1 , num2 = get_args()
 
     train_data,test_data,train_features, test_features, train_labels, in_features = data_preprocess()
     if choice:
