@@ -4,28 +4,52 @@ import torch
 from torch import nn
 import os
 from hyperopt import fmin, tpe, hp
-from sklearn.model_selection import cross_val_score
+
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+# 自行预定义
 def get_args():
 
     choice = 1
 
     # loss = nn.MSELoss() # 均方误差损失
+    # loss = torch.sqrt(nn.MSELoss()) # 均方根误差损失
+    # loss = nn.L1Loss() # L1损失
     loss = nn.SmoothL1Loss() # Huber损失
+
+    my_optimizer = torch.optim.RMSprop
+    
+    k=5
+    num_epochs=100
+    batch_size=128
 
     # 0.11979 submission13
     # num1 = 127
     # num2 = 275
 
-    num1 = 159
-    num2 = 300
+    # 0.11926 submission15 
+    # {'lr': 0.010000932608412779, 'num1': 35, 'num2': 132, 'weight_decay': 0.2040251030562371}
 
-    return choice, loss, num1, num2
+    #  submission16     MSELoss      Adam
+    # {'lr': 0.7599159441457433, 'num1': 251, 'num2': 58, 'weight_decay': 0.021198893106332467} 训练log rmse：0.042248
 
-def my_best():# 自行选择的超参数
-    best = {'lr': 0.008854963202072644, 'weight_decay': 0.045949699090015866}
+    # submission17          L1Loss      Adam
+    # {'lr': 0.02282028181603883, 'num1': 191, 'num2': 11, 'weight_decay': 0.0357673907830876} 训练log rmse：0.245027
+
+    # submission18          L1Loss      RMSprop
+    # submission19          MSELoss      RMSprop
+    # submission20          SmoothL1Loss      RMSprop
+    # submission21          {'lr': 0.00832718465955878, 'num1': 210, 'num2': 640, 'weight_decay': 0.12045844009875302}
+    # submission22          dropout
+    # submission23          dropout random?
+    # submission24          batch normalization
+    # submission25          batch=128
+    return choice, loss, my_optimizer, k, num_epochs, batch_size
+
+# 自行选择的超参数
+def my_best():
+    best = {'lr': 0.008854963202072644, 'weight_decay': 0.045949699090015866, 'num1': 159, 'num2': 300}
     return best
 
 def data_preprocess():
@@ -48,37 +72,19 @@ def data_preprocess():
     all_features = pd.get_dummies(all_features, dummy_na=True,dtype=int)
 
 
+
     n_train = train_data.shape[0]
     train_features = torch.tensor(all_features[:n_train].values, dtype=torch.float32).to(device)
+    
     test_features = torch.tensor(all_features[n_train:].values, dtype=torch.float32).to(device)
     train_labels = torch.tensor(train_data.SalePrice.values.reshape(-1, 1), dtype=torch.float32).to(device)
 
     in_features = train_features.shape[1]
 
+    print(train_features.shape)
     return  train_data,test_data,train_features, test_features, train_labels, in_features
 
 
-
-# 0.123
-# def get_net():
-#     net = nn.Sequential(
-#         nn.Linear(in_features, 64),  # 输入层到隐藏层，64个节点
-#         nn.ReLU(),  # 非线性激活函数
-#         nn.Linear(64, 64),  # 隐藏层到隐藏层，64个节点
-#         nn.ReLU(),  # 非线性激活函数
-#         nn.Linear(64, 1)  # 隐藏层到输出层，1个节点
-#     )
-#     return net
-
-# def get_net():
-#     net = nn.Sequential(
-#         nn.Linear(in_features, 200),
-#         nn.ReLU(),
-#         nn.Linear(200, 200),
-#         nn.ReLU(),
-#         nn.Linear(200, 1)
-#     )
-#     return net
 
 def get_net(in_features,num1,num2):
     net = nn.Sequential(
@@ -97,12 +103,12 @@ def log_rmse(net, features, labels):
     return rmse.item()
 
 
-def train(net, train_features, train_labels, test_features, test_labels,num_epochs, learning_rate, weight_decay, batch_size):
+def train(net, train_features, train_labels, test_features, test_labels,num_epochs, learning_rate, weight_decay, batch_size,num1,num2):
     train_ls, test_ls = [], []
     dataset = torch.utils.data.TensorDataset(train_features, train_labels)
     train_iter = torch.utils.data.DataLoader(dataset, batch_size, shuffle=True)
-    # 这里使用的是Adam优化算法
-    optimizer = torch.optim.RMSprop(net.parameters(), lr = learning_rate, weight_decay = weight_decay)
+
+    optimizer = my_optimizer(net.parameters(), lr = learning_rate, weight_decay = weight_decay)
     for epoch in range(num_epochs):
         for X, y in train_iter:
             optimizer.zero_grad()
@@ -132,12 +138,12 @@ def get_k_fold_data(k, i, X, y):
     return X_train, y_train, X_valid, y_valid
 
 
-def k_fold(k, X_train, y_train, num_epochs, learning_rate, weight_decay, batch_size):
+def k_fold(k, X_train, y_train, num_epochs, learning_rate, weight_decay, batch_size,num1,num2):
     train_l_sum, valid_l_sum = 0, 0
     for i in range(k):
         data = get_k_fold_data(k, i, X_train, y_train)
         net = get_net(in_features,num1,num2).to(device)
-        train_ls, valid_ls = train(net, *data, num_epochs, learning_rate, weight_decay, batch_size)
+        train_ls, valid_ls = train(net, *data, num_epochs, learning_rate, weight_decay, batch_size,num1,num2)
         train_l_sum += train_ls[-1]
         valid_l_sum += valid_ls[-1]
         print(f'折{i + 1}，训练log rmse{float(train_ls[-1]):f}, 'f'验证log rmse{float(valid_ls[-1]):f}')
@@ -145,22 +151,14 @@ def k_fold(k, X_train, y_train, num_epochs, learning_rate, weight_decay, batch_s
 
 
 
-
-# 定义目标函数
-def objective(params):
-    k, num_epochs, lr, weight_decay, batch_size = 5, 100, params['lr'], params['weight_decay'], 64
-
-    # 训练和验证的代码
-    train_l, valid_l = k_fold(k, train_features, train_labels, num_epochs, lr, weight_decay, batch_size)
-    # 返回验证误差
-    return valid_l
-
 # 贝叶斯优化
+# 定义参数空间
 def bayesian_optimization():
-    # 定义参数空间
     space = {
         'lr': hp.loguniform('lr', -5, 0),
         'weight_decay': hp.loguniform('weight_decay', -5, 0),
+        'num1': hp.choice('num1', range(1, 1000)),
+        'num2': hp.choice('num2', range(1, 1000))
     }
 
     # 运行优化
@@ -171,11 +169,20 @@ def bayesian_optimization():
 
     print(best)
     return best
+# 定义目标函数
+def objective(params):
+    lr, weight_decay, num1, num2 =  params['lr'], params['weight_decay'],  params['num1'], params['num2']
+
+    # 训练和验证的代码
+    train_l, valid_l = k_fold(k, train_features, train_labels, num_epochs, lr, weight_decay, batch_size, num1, num2)
+    # 返回验证误差
+    return valid_l
 
 
-def train_and_pred(train_features, test_features, train_labels, test_data, num_epochs, lr, weight_decay, batch_size):
+
+def train_and_pred(train_features, test_features, train_labels, test_data, num_epochs, lr, weight_decay, batch_size,num1,num2):
     net = get_net(in_features,num1,num2).to(device)
-    train_ls, _ = train(net, train_features, train_labels, None, None,num_epochs, lr, weight_decay, batch_size)
+    train_ls, _ = train(net, train_features, train_labels, None, None,num_epochs, lr, weight_decay, batch_size,num1,num2)
     print(f'训练log rmse：{float(train_ls[-1]):f}')
     
     preds = net(test_features).cpu().detach().numpy()   # 将网络应用于测试集。
@@ -197,14 +204,14 @@ def train_and_pred(train_features, test_features, train_labels, test_data, num_e
 
 if __name__ == '__main__':
 
-    choice, loss, num1 , num2 = get_args()
+    choice, loss , my_optimizer, k, num_epochs, batch_size = get_args()
 
     train_data,test_data,train_features, test_features, train_labels, in_features = data_preprocess()
     if choice:
         best = bayesian_optimization()
     else:
         best = my_best()
-    train_and_pred(train_features, test_features, train_labels, test_data, 100, best['lr'], best['weight_decay'], 64)
+    train_and_pred(train_features, test_features, train_labels, test_data, num_epochs, best['lr'], best['weight_decay'], batch_size, best['num1'], best['num2'])
     
 
     # 检查文件与上次有没有改变
