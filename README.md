@@ -134,7 +134,6 @@ def get_net():
 
 ### 网络模型
 
-个人认为这是最头疼的一部分。
 
 考虑以下几种网络模型：
 
@@ -275,6 +274,58 @@ def get_net(in_features,num1,num2):
 在Kaggle得分为0.12113 排名约为216/4768
 
 
+### 尝试4
+
+使用早停法确定合适epoch
+
+```python
+for epoch in range(num_epochs):
+    for X, y in train_iter:
+        optimizer.zero_grad()
+        l = loss(net(X), y)
+        l.backward()
+        optimizer.step()
+    train_loss = log_rmse(net, train_features, train_labels)
+    train_ls.append(train_loss)
+    if test_labels is not None:
+        test_loss = log_rmse(net, test_features, test_labels)
+        test_ls.append(test_loss)
+        if test_loss < best_test_loss:
+            best_test_loss = test_loss
+            epochs_no_improve = 0
+        else:
+            epochs_no_improve += 1
+            if epochs_no_improve == patience:
+                print('Early stopping! epoch now is'+ str(epoch))
+                return train_ls, test_ls
+```
+
+想到既然能用贝叶斯选择参数，顺便让他决定网络模型
+
+```python
+# 定义参数空间
+def bayesian_optimization():
+    space = {
+        'lr': hp.loguniform('lr', -5, 0),
+        'weight_decay': hp.loguniform('weight_decay', -5, 0),
+        'num1': hp.choice('num1', range(2, 700)),
+        'num2': hp.choice('num2', range(2, 700))
+    }
+    # 运行优化
+    best = fmin(fn=objective,space=space,algo=tpe.suggest,max_evals=100)
+    return best
+# 定义目标函数
+def objective(params):
+    lr, weight_decay, num1, num2 =  params['lr'], params['weight_decay'],  params['num1'], params['num2']
+    # 训练和验证的代码
+    train_l, valid_l = k_fold(k, train_features, train_labels, num_epochs, lr, weight_decay, batch_size, num1, num2, patience)
+    # 返回验证误差
+    return valid_l
+```
+
+在Kaggle得分为0.11926 排名约为115/4788
+
+### 尝试5
 
 
 
@@ -288,7 +339,7 @@ def get_net(in_features,num1,num2):
 这里课本数据预处理上已经较为完善，包括：
 - 标准化数值特征(标准化:减去均值然后除以标准差)
 - 填充缺失值
-- 创建虚拟变量(由独热编码，80个变成330个)
+- 创建虚拟变量
 - 划分训练集和测试集
 
 这部分完成效果还是可以的，没有什么进行挑剔，而且提升空间有限
