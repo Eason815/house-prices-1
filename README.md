@@ -23,9 +23,7 @@ https://www.kaggle.com/c/house-prices-advanced-regression-techniques
 
 截止此次Commit 
 
-最高在Kaggle得分为0.11979 排名约为145/4768
-
-
+最高在Kaggle得分为0.11839 排名约为89/4860
 
 
 
@@ -329,21 +327,27 @@ def objective(params):
 ### 尝试5
 
 尝试再加一层为4层
-(效果不佳，回滚使用3层)
+(效果不佳，回滚使用2层)
 ```python
-def get_net(in_features,num1,num2,num3):
+def get_net(in_features,num1):
     net = nn.Sequential(
         nn.Linear(in_features, num1),
         nn.ReLU(),
-        nn.Linear(num1, num2),
-        nn.ReLU(),
-        nn.Linear(num2, num3),
-        nn.ReLU(),
-        nn.Linear(num3, 1)
+        nn.Linear(num1, 1)
     )
     return net
 ```
+随机性较强，不可复刻
+
+预测结果submission39
+
+
+在Kaggle得分为0.11839 排名约为89/4860
+
+
 ### 尝试6
+
+
 
 貌似已经优化到将近极致，最后再对数据进行处理一下
 

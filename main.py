@@ -51,6 +51,7 @@ def get_args():
     # submission37          tanh+ Xavier 初始化
     # 0.11887 submission38    best loss: 0.08761523514986039] {'lr': 0.008412236399045108, 'num1': 200, 'num2': 235, 'weight_decay': 0.15257216297444653} 训练log rmse：0.069340
     # 0.11839 submission39        2Linear
+    # submission40          best loss: 0.0880582019686699]  {'lr': 0.010239658762443983, 'num1': 75, 'weight_decay': 0.01380687204957527}   训练log rmse：0.063611
     return choice, loss, my_optimizer, k, num_epochs, batch_size
 
 # 自行选择的超参数
@@ -97,13 +98,6 @@ def data_preprocess():
     
 
 
-
-
-
-
-
-
-
     test_data = pd.read_csv(project_path + '/data/kaggle_house_pred_test.csv')
 
 
@@ -133,13 +127,24 @@ def data_preprocess():
 
 
 
-def get_net(in_features,num1):
+# def get_net(in_features, num1):
+#     net = nn.Sequential(
+#         nn.Linear(in_features, num1),
+#         nn.ReLU(),
+#         nn.Linear(num1, num1 // 2),
+#         nn.ReLU(),
+#         nn.Linear(num1 // 2, 1)
+#     )
+#     return net
+
+def get_net(in_features, num1):
     net = nn.Sequential(
         nn.Linear(in_features, num1),
         nn.ReLU(),
         nn.Linear(num1, 1)
     )
     return net
+
 
 def log_rmse(net, features, labels):
     # 为了在取对数时进一步稳定该值，将小于1的值设置为1
@@ -200,10 +205,8 @@ def k_fold(k, X_train, y_train, num_epochs, learning_rate, weight_decay, batch_s
 # 定义目标函数
 def objective(params):
     k, num_epochs, lr, weight_decay, batch_size ,num1  = 5, 100, params['lr'], params['weight_decay'], 64, params['num1']
-
     # 训练和验证的代码
     train_l, valid_l = k_fold(k, train_features, train_labels, num_epochs, lr, weight_decay, batch_size,num1)
-    # 返回验证误差
     return valid_l
 
 # 贝叶斯优化
@@ -249,7 +252,7 @@ def train_and_pred(train_features, test_features, train_labels, test_data, num_e
 
 if __name__ == '__main__':
 
-    choice, loss , my_optimizer, k, num_epochs, batch_size, patience = get_args()
+    choice, loss , my_optimizer, k, num_epochs, batch_size = get_args()
 
     train_data,test_data,train_features, test_features, train_labels, in_features = data_preprocess()
     if choice:
