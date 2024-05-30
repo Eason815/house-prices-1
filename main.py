@@ -23,7 +23,7 @@ def get_args():
     k=5
     num_epochs=100
     batch_size=64
-    patience=num_epochs    # 禁用早停法
+    # patience=num_epochs    # 禁用早停法
 
     # 0.11979 submission13
     # num1 = 127
@@ -51,11 +51,11 @@ def get_args():
     # submission37          tanh+ Xavier 初始化
     # 0.11887 submission38    best loss: 0.08761523514986039] {'lr': 0.008412236399045108, 'num1': 200, 'num2': 235, 'weight_decay': 0.15257216297444653} 训练log rmse：0.069340
     # 0.11839 submission39        2Linear
-    return choice, loss, my_optimizer, k, num_epochs, batch_size, patience
+    return choice, loss, my_optimizer, k, num_epochs, batch_size
 
 # 自行选择的超参数
 def my_best():
-    best = {'lr': 0.008854963202072644, 'weight_decay': 0.045949699090015866, 'num1': 159, 'num2': 300}
+    best = {'lr': 0.008854963202072644, 'weight_decay': 0.045949699090015866, 'num1': 256}
     return best
 
 def data_preprocess():
@@ -91,7 +91,7 @@ def data_preprocess():
         fix_num += 1
 
     # 删除异常值
-    train_data = train_data.drop(outliers_indices)
+    # train_data = train_data.drop(outliers_indices)
     print('删除异常值后的数据集大小:', train_data.shape)
     print(fix_num)
     
@@ -133,67 +133,36 @@ def data_preprocess():
 
 
 
-def get_net(in_features,num1,num2):
+def get_net(in_features,num1):
     net = nn.Sequential(
         nn.Linear(in_features, num1),
-        nn.Tanh(),
-        nn.Linear(num1, num2),
-        nn.Tanh(),
-        nn.Linear(num2, 1),
+        nn.ReLU(),
+        nn.Linear(num1, 1)
     )
-
-    # for param in net.parameters():
-    #     nn.init.normal_(param, mean=0, std=0.01)
-        
-    # Xavier 初始化
-    for name, layer in net.named_modules():
-        if isinstance(layer, nn.Linear):
-            nn.init.xavier_uniform_(layer.weight)
-
-    # 或者 He 初始化
-    # for name, layer in net.named_modules():
-    #     if isinstance(layer, nn.Linear):
-    #         nn.init.kaiming_uniform_(layer.weight)
-
     return net
 
 def log_rmse(net, features, labels):
-    
-    with torch.no_grad():
-        # 为了在取对数时进一步稳定该值，将小于1的值设置为1
-        clipped_preds = torch.clamp(net(features), 1, float('inf'))
-        rmse = torch.sqrt(loss(torch.log(clipped_preds),torch.log(labels)))
+    # 为了在取对数时进一步稳定该值，将小于1的值设置为1
+    clipped_preds = torch.clamp(net(features), 1, float('inf'))
+    rmse = torch.sqrt(loss(torch.log(clipped_preds),torch.log(labels)))
     return rmse.item()
 
 
-def train(net, train_features, train_labels, test_features, test_labels, num_epochs, learning_rate, weight_decay, batch_size, num1, num2,patience):
+def train(net, train_features, train_labels, test_features, test_labels,num_epochs, learning_rate, weight_decay, batch_size,num1):
     train_ls, test_ls = [], []
     dataset = torch.utils.data.TensorDataset(train_features, train_labels)
     train_iter = torch.utils.data.DataLoader(dataset, batch_size, shuffle=True)
-
-    optimizer = my_optimizer(net.parameters(), lr = learning_rate, weight_decay = weight_decay)
-    best_test_loss = float('inf')
-    epochs_no_improve = 0
-
+    # 这里使用的是Adam优化算法
+    optimizer = torch.optim.RMSprop(net.parameters(), lr = learning_rate, weight_decay = weight_decay)
     for epoch in range(num_epochs):
         for X, y in train_iter:
             optimizer.zero_grad()
             l = loss(net(X), y)
             l.backward()
             optimizer.step()
-        train_loss = log_rmse(net, train_features, train_labels)
-        train_ls.append(train_loss)
+        train_ls.append(log_rmse(net, train_features, train_labels))
         if test_labels is not None:
-            test_loss = log_rmse(net, test_features, test_labels)
-            test_ls.append(test_loss)
-            if test_loss < best_test_loss:
-                best_test_loss = test_loss
-                epochs_no_improve = 0
-            else:
-                epochs_no_improve += 1
-                if epochs_no_improve == patience:
-                    print('Early stopping! epoch now is'+ str(epoch))
-                    return train_ls, test_ls
+            test_ls.append(log_rmse(net, test_features, test_labels))
     return train_ls, test_ls
 
 
@@ -214,12 +183,12 @@ def get_k_fold_data(k, i, X, y):
     return X_train, y_train, X_valid, y_valid
 
 
-def k_fold(k, X_train, y_train, num_epochs, learning_rate, weight_decay, batch_size, num1, num2, patience):
+def k_fold(k, X_train, y_train, num_epochs, learning_rate, weight_decay, batch_size,num1):
     train_l_sum, valid_l_sum = 0, 0
     for i in range(k):
         data = get_k_fold_data(k, i, X_train, y_train)
-        net = get_net(in_features, num1, num2).to(device)
-        train_ls, valid_ls = train(net, *data, num_epochs, learning_rate, weight_decay, batch_size, num1, num2, patience)
+        net = get_net(in_features,num1).to(device)
+        train_ls, valid_ls = train(net, *data, num_epochs, learning_rate, weight_decay, batch_size,num1)
         train_l_sum += train_ls[-1]
         valid_l_sum += valid_ls[-1]
         print(f'折{i + 1}，训练log rmse{float(train_ls[-1]):f}, 'f'验证log rmse{float(valid_ls[-1]):f}')
@@ -227,14 +196,23 @@ def k_fold(k, X_train, y_train, num_epochs, learning_rate, weight_decay, batch_s
 
 
 
+
+# 定义目标函数
+def objective(params):
+    k, num_epochs, lr, weight_decay, batch_size ,num1  = 5, 100, params['lr'], params['weight_decay'], 64, params['num1']
+
+    # 训练和验证的代码
+    train_l, valid_l = k_fold(k, train_features, train_labels, num_epochs, lr, weight_decay, batch_size,num1)
+    # 返回验证误差
+    return valid_l
+
 # 贝叶斯优化
-# 定义参数空间
 def bayesian_optimization():
+    # 定义参数空间
     space = {
         'lr': hp.loguniform('lr', -5, 0),
         'weight_decay': hp.loguniform('weight_decay', -5, 0),
-        'num1': hp.choice('num1', range(2, 300)),
-        'num2': hp.choice('num2', range(2, 300))
+        'num1': hp.choice('num1', range(2, 600))
     }
 
     # 运行优化
@@ -245,20 +223,11 @@ def bayesian_optimization():
 
     print(best)
     return best
-# 定义目标函数
-def objective(params):
-    lr, weight_decay, num1, num2 =  params['lr'], params['weight_decay'],  params['num1'], params['num2']
-
-    # 训练和验证的代码
-    train_l, valid_l = k_fold(k, train_features, train_labels, num_epochs, lr, weight_decay, batch_size, num1, num2, patience)
-    # 返回验证误差
-    return valid_l
 
 
-
-def train_and_pred(train_features, test_features, train_labels, test_data, num_epochs, lr, weight_decay, batch_size,num1,num2,patience):
-    net = get_net(in_features,num1,num2).to(device)
-    train_ls, _ = train(net, train_features, train_labels, None, None,num_epochs, lr, weight_decay, batch_size,num1,num2,patience)
+def train_and_pred(train_features, test_features, train_labels, test_data, num_epochs, lr, weight_decay, batch_size,num1):
+    net = get_net(in_features,num1).to(device)
+    train_ls, _ = train(net, train_features, train_labels, None, None,num_epochs, lr, weight_decay, batch_size,num1)
     print(f'训练log rmse：{float(train_ls[-1]):f}')
     
     preds = net(test_features).cpu().detach().numpy()   # 将网络应用于测试集。
@@ -287,7 +256,7 @@ if __name__ == '__main__':
         best = bayesian_optimization()
     else:
         best = my_best()
-    train_and_pred(train_features, test_features, train_labels, test_data, num_epochs, best['lr'], best['weight_decay'], batch_size, best['num1'], best['num2'],patience)
+    train_and_pred(train_features, test_features, train_labels, test_data, num_epochs, best['lr'], best['weight_decay'], batch_size, best['num1'])
     
 
     # 检查文件与上次有没有改变
