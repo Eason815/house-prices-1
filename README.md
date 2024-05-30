@@ -192,6 +192,7 @@ def get_net(in_features,num1,num2):
 
     optimizer = torch.optim.RMSprop(net.parameters(), lr = learning_rate, weight_decay = weight_decay) #RMSprop优化器
 
+(后面经多次验证，个人认为最佳组合)
 
 在Kaggle得分为0.16703 排名约为3460/4768
 
@@ -277,7 +278,7 @@ def get_net(in_features,num1,num2):
 ### 尝试4
 
 使用早停法确定合适epoch
-
+(效果非常不佳，已禁用)
 ```python
 for epoch in range(num_epochs):
     for X, y in train_iter:
@@ -300,7 +301,7 @@ for epoch in range(num_epochs):
                 return train_ls, test_ls
 ```
 
-想到既然能用贝叶斯选择参数，顺便让他决定网络模型
+想到既然能用贝叶斯选择参数，那就顺便让他决定网络模型，于是改进尝试3
 
 ```python
 # 定义参数空间
@@ -327,6 +328,45 @@ def objective(params):
 
 ### 尝试5
 
+尝试再加一层为4层
+(效果不佳，回滚使用3层)
+```python
+def get_net(in_features,num1,num2,num3):
+    net = nn.Sequential(
+        nn.Linear(in_features, num1),
+        nn.ReLU(),
+        nn.Linear(num1, num2),
+        nn.ReLU(),
+        nn.Linear(num2, num3),
+        nn.ReLU(),
+        nn.Linear(num3, 1)
+    )
+    return net
+```
+### 尝试6
+
+貌似已经优化到将近极致，最后再对数据进行处理一下
+
+自行尝试检测和剔除异常值
+
+详见`dealdata.ipynb`文件
+
+首先，通过计算相关性挑出几个值高的重要指标
+
+(主要是要找几个样例进行可视化，看看剔除效果，而这些又比较重要)
+
+其次，选择算法
+
+在`dealdata.ipynb`里，个人研究并尝试以下6种
+    
+- Z-scores
+- 箱线图/IQR
+- 马氏距离
+- KMeans聚类
+- DBSCAN聚类
+- LOF
+
+并作了可视化分析
 
 
 
@@ -336,21 +376,23 @@ def objective(params):
 
 1. 数据
 
-这里课本数据预处理上已经较为完善，包括：
-- 标准化数值特征(标准化:减去均值然后除以标准差)
-- 填充缺失值
-- 创建虚拟变量
-- 划分训练集和测试集
+- 这里课本数据预处理上较为完善，包括：
+    
+    * 标准化数值特征(标准化:减去均值然后除以标准差)
+    * 填充缺失值
+    * 创建虚拟变量
+    * 划分训练集和测试集
 
-这部分完成效果还是可以的，没有什么进行挑剔，而且提升空间有限
+- 对train_data剔除异常值
+    * LOF算法
 
 2. 模型
 
-这里课本使用的简单线性回归模型。
+- 这里课本使用的简单线性回归模型。
 
-如果特征和目标之间的关系是非线性的，线性回归的表现可能就不会很好。
 
-改进使用MLP/DNN模型
+- 改进使用
+    * MLP/DNN模型
 
 3. 目标函数
 
@@ -359,7 +401,7 @@ def objective(params):
 - 均方误差（MSE）
 - Huber损失
 
-感觉上差别不大，可能还是原来的MSE效果好
+
 
 4. 调参
 

@@ -4,7 +4,7 @@ import torch
 from torch import nn
 import os
 from hyperopt import fmin, tpe, hp
-
+from sklearn.neighbors import LocalOutlierFactor
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -21,9 +21,9 @@ def get_args():
     my_optimizer = torch.optim.RMSprop
     
     k=5
-    num_epochs=500
+    num_epochs=100
     batch_size=64
-    patience=30
+    patience=num_epochs    # 禁用早停法
 
     # 0.11979 submission13
     # num1 = 127
@@ -47,7 +47,10 @@ def get_args():
     # submission24          num123,Early stop:patience=10       {'lr': 0.03056633337169984, 'num1': 116, 'num2': 530, 'num3': 278, 'weight_decay': 0.35030074672470984} 训练log rmse：0.037608
     # submission25          patience=20             {'lr': 0.007324901971771072, 'num1': 425, 'num2': 517, 'num3': 6, 'weight_decay': 0.026031871210853732}
     # submission26          patience=30             
-    
+    # submission36          tanh
+    # submission37          tanh+ Xavier 初始化
+    # 0.11887 submission38    best loss: 0.08761523514986039] {'lr': 0.008412236399045108, 'num1': 200, 'num2': 235, 'weight_decay': 0.15257216297444653} 训练log rmse：0.069340
+    # 0.11839 submission39        2Linear
     return choice, loss, my_optimizer, k, num_epochs, batch_size, patience
 
 # 自行选择的超参数
@@ -60,6 +63,47 @@ def data_preprocess():
     project_path = os.path.dirname(os.path.abspath(__file__))
 
     train_data = pd.read_csv(project_path + '/data/kaggle_house_pred_train.csv')
+    # 按数值类与非数值类分开
+    train_data_num = train_data.select_dtypes(include=[np.number])
+    train_data_cat = train_data.select_dtypes(exclude=[np.number])
+
+    fix_num = 0
+    # 用于存储所有的异常值索引
+    outliers_indices = []
+
+    for feature in train_data.columns:
+        # 若特征内有nan值，则continue
+        if train_data[feature].isnull().sum() > 0:
+            continue
+        # 若特征为非数值类型，则continue
+        if feature in train_data_cat.columns:
+            continue
+        # 创建LOF检测器
+        lof = LocalOutlierFactor(n_neighbors=100, contamination=0.0001)
+
+        # 使用LOF检测器对数据进行拟合和预测
+        y_pred = lof.fit_predict(train_data[feature].values.reshape(-1, 1))
+
+        # 异常值被标记为-1，正常值被标记为1
+        # 找出异常值
+        outliers = train_data[y_pred == -1]
+        outliers_indices.extend(outliers.index.tolist())
+        fix_num += 1
+
+    # 删除异常值
+    train_data = train_data.drop(outliers_indices)
+    print('删除异常值后的数据集大小:', train_data.shape)
+    print(fix_num)
+    
+
+
+
+
+
+
+
+
+
     test_data = pd.read_csv(project_path + '/data/kaggle_house_pred_test.csv')
 
 
@@ -89,26 +133,40 @@ def data_preprocess():
 
 
 
-def get_net(in_features,num1,num2,num3):
+def get_net(in_features,num1,num2):
     net = nn.Sequential(
         nn.Linear(in_features, num1),
-        nn.ReLU(),
+        nn.Tanh(),
         nn.Linear(num1, num2),
-        nn.ReLU(),
-        nn.Linear(num2, num3),
-        nn.ReLU(),
-        nn.Linear(num3, 1)
+        nn.Tanh(),
+        nn.Linear(num2, 1),
     )
+
+    # for param in net.parameters():
+    #     nn.init.normal_(param, mean=0, std=0.01)
+        
+    # Xavier 初始化
+    for name, layer in net.named_modules():
+        if isinstance(layer, nn.Linear):
+            nn.init.xavier_uniform_(layer.weight)
+
+    # 或者 He 初始化
+    # for name, layer in net.named_modules():
+    #     if isinstance(layer, nn.Linear):
+    #         nn.init.kaiming_uniform_(layer.weight)
+
     return net
 
 def log_rmse(net, features, labels):
-    # 为了在取对数时进一步稳定该值，将小于1的值设置为1
-    clipped_preds = torch.clamp(net(features), 1, float('inf'))
-    rmse = torch.sqrt(loss(torch.log(clipped_preds),torch.log(labels)))
+    
+    with torch.no_grad():
+        # 为了在取对数时进一步稳定该值，将小于1的值设置为1
+        clipped_preds = torch.clamp(net(features), 1, float('inf'))
+        rmse = torch.sqrt(loss(torch.log(clipped_preds),torch.log(labels)))
     return rmse.item()
 
 
-def train(net, train_features, train_labels, test_features, test_labels, num_epochs, learning_rate, weight_decay, batch_size, num1, num2,num3, patience):
+def train(net, train_features, train_labels, test_features, test_labels, num_epochs, learning_rate, weight_decay, batch_size, num1, num2,patience):
     train_ls, test_ls = [], []
     dataset = torch.utils.data.TensorDataset(train_features, train_labels)
     train_iter = torch.utils.data.DataLoader(dataset, batch_size, shuffle=True)
@@ -156,12 +214,12 @@ def get_k_fold_data(k, i, X, y):
     return X_train, y_train, X_valid, y_valid
 
 
-def k_fold(k, X_train, y_train, num_epochs, learning_rate, weight_decay, batch_size, num1, num2,num3, patience):
+def k_fold(k, X_train, y_train, num_epochs, learning_rate, weight_decay, batch_size, num1, num2, patience):
     train_l_sum, valid_l_sum = 0, 0
     for i in range(k):
         data = get_k_fold_data(k, i, X_train, y_train)
-        net = get_net(in_features, num1, num2,num3).to(device)
-        train_ls, valid_ls = train(net, *data, num_epochs, learning_rate, weight_decay, batch_size, num1, num2,num3, patience)
+        net = get_net(in_features, num1, num2).to(device)
+        train_ls, valid_ls = train(net, *data, num_epochs, learning_rate, weight_decay, batch_size, num1, num2, patience)
         train_l_sum += train_ls[-1]
         valid_l_sum += valid_ls[-1]
         print(f'折{i + 1}，训练log rmse{float(train_ls[-1]):f}, 'f'验证log rmse{float(valid_ls[-1]):f}')
@@ -175,9 +233,8 @@ def bayesian_optimization():
     space = {
         'lr': hp.loguniform('lr', -5, 0),
         'weight_decay': hp.loguniform('weight_decay', -5, 0),
-        'num1': hp.choice('num1', range(2, 700)),
-        'num2': hp.choice('num2', range(2, 700)),
-        'num3': hp.choice('num3', range(2, 700))
+        'num1': hp.choice('num1', range(2, 300)),
+        'num2': hp.choice('num2', range(2, 300))
     }
 
     # 运行优化
@@ -190,18 +247,18 @@ def bayesian_optimization():
     return best
 # 定义目标函数
 def objective(params):
-    lr, weight_decay, num1, num2, num3 =  params['lr'], params['weight_decay'],  params['num1'], params['num2'],params['num3']
+    lr, weight_decay, num1, num2 =  params['lr'], params['weight_decay'],  params['num1'], params['num2']
 
     # 训练和验证的代码
-    train_l, valid_l = k_fold(k, train_features, train_labels, num_epochs, lr, weight_decay, batch_size, num1, num2,num3, patience)
+    train_l, valid_l = k_fold(k, train_features, train_labels, num_epochs, lr, weight_decay, batch_size, num1, num2, patience)
     # 返回验证误差
     return valid_l
 
 
 
-def train_and_pred(train_features, test_features, train_labels, test_data, num_epochs, lr, weight_decay, batch_size,num1,num2,num3,patience):
-    net = get_net(in_features,num1,num2,num3).to(device)
-    train_ls, _ = train(net, train_features, train_labels, None, None,num_epochs, lr, weight_decay, batch_size,num1,num2,num3,patience)
+def train_and_pred(train_features, test_features, train_labels, test_data, num_epochs, lr, weight_decay, batch_size,num1,num2,patience):
+    net = get_net(in_features,num1,num2).to(device)
+    train_ls, _ = train(net, train_features, train_labels, None, None,num_epochs, lr, weight_decay, batch_size,num1,num2,patience)
     print(f'训练log rmse：{float(train_ls[-1]):f}')
     
     preds = net(test_features).cpu().detach().numpy()   # 将网络应用于测试集。
@@ -230,7 +287,7 @@ if __name__ == '__main__':
         best = bayesian_optimization()
     else:
         best = my_best()
-    train_and_pred(train_features, test_features, train_labels, test_data, num_epochs, best['lr'], best['weight_decay'], batch_size, best['num1'], best['num2'],best['num3'],patience)
+    train_and_pred(train_features, test_features, train_labels, test_data, num_epochs, best['lr'], best['weight_decay'], batch_size, best['num1'], best['num2'],patience)
     
 
     # 检查文件与上次有没有改变
